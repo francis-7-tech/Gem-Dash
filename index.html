@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gem Dash</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+  </script>
+</head>
+<body>
+  <div id="game"></div>
+
+  <div class="hud">
+    <div class="hud-item">💎 <span id="gems">0</span></div>
+    <div class="hud-item">⏱ <span id="time">60</span>s</div>
+  </div>
+
+  <div class="startng-card" id="player-card" hidden>
+    <img id="player-face" alt="" hidden>
+    <div>
+      <b id="player-name">Guest</b>
+      <span id="player-account">Not signed in</span>
+    </div>
+    <button id="player-sign-in" hidden>Sign in</button>
+  </div>
+
+  <div class="overlay" id="start-screen">
+    <div class="panel">
+      <h1>Gem Dash</h1>
+      <p>Collect as many gems as you can in 60 seconds. Dodge the rolling boulders: each hit costs you 3 seconds.</p>
+      <p class="hint">Move with the arrow keys or WASD. On a phone, drag on the screen.</p>
+      <button id="start-button" class="primary">Play</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="end-screen" hidden>
+    <div class="panel">
+      <h2>Time's up!</h2>
+      <p class="result">You collected <b id="final-gems">0</b> gems.</p>
+      <p id="save-message" class="hint"></p>
+      <h3>Leaderboard</h3>
+      <ol id="leaderboard"></ol>
+      <button id="again-button" class="primary">Play again</button>
+    </div>
+  </div>
+
+  <script type="module" src="./game.js"></script>
+</body>
+</html>
