@@ -8,14 +8,24 @@ const PLAY_RADIUS = ISLAND_RADIUS - 1.6;
 const PLAYER_SPEED = 7;
 const PLAYER_RADIUS = 0.4;
 const GEMS_ON_ISLAND = 5;
-const HIT_PENALTY_SECONDS = 3;
 const GEM_COLORS = ['#ff4d6d', '#4cc9f0', '#ffd166', '#b388ff', '#06d6a0'];
 
+// Difficulty: every GEMS_PER_LEVEL gems is a new level, and each level sends more, faster boulders.
+const GEMS_PER_LEVEL = 5;
+const BOULDER_INTERVAL = { start: 2.4, step: 0.3, min: 0.6 };
+const BOULDER_SPEED = { start: 5, step: 0.7, max: 12 };
+const PAIRS_FROM_LEVEL = 4;
+const PAIR_CHANCE = 0.5;
+const HIT_FLASH_SECONDS = 0.8;
+
 const ui = {
+  level: document.getElementById('level'),
+  levelUp: document.getElementById('level-up'),
   gems: document.getElementById('gems'),
   time: document.getElementById('time'),
   startScreen: document.getElementById('start-screen'),
   endScreen: document.getElementById('end-screen'),
+  endTitle: document.getElementById('end-title'),
   finalGems: document.getElementById('final-gems'),
   saveMessage: document.getElementById('save-message'),
   leaderboard: document.getElementById('leaderboard'),
@@ -226,11 +236,19 @@ function spawnGem() {
   gems.push(gem);
 }
 
-function spawnBoulder(progress) {
+function levelFor(gemCount) {
+  return 1 + Math.floor(gemCount / GEMS_PER_LEVEL);
+}
+
+function boulderInterval(level) {
+  return Math.max(BOULDER_INTERVAL.min, BOULDER_INTERVAL.start - BOULDER_INTERVAL.step * (level - 1));
+}
+
+function spawnBoulder(level) {
   const angle = Math.random() * Math.PI * 2;
   const start = new THREE.Vector3(Math.sin(angle) * (ISLAND_RADIUS + 2), 0.9, Math.cos(angle) * (ISLAND_RADIUS + 2));
   const target = randomPointOnIsland(ISLAND_RADIUS * 0.6);
-  const speed = THREE.MathUtils.lerp(5, 9, progress) + Math.random() * 1.5;
+  const speed = Math.min(BOULDER_SPEED.max, BOULDER_SPEED.start + BOULDER_SPEED.step * (level - 1)) + Math.random() * 1.5;
   const velocity = new THREE.Vector3(target.x - start.x, 0, target.z - start.z).normalize().multiplyScalar(speed);
   const boulder = new THREE.Mesh(
     boulderGeometry,
@@ -258,15 +276,30 @@ function clearIsland() {
 
 // ---------- Rounds ----------
 
+// 'ready' → 'playing' → 'hit' (a short flash after a boulder hit) → 'over'
 let state = 'ready';
 let timeLeft = ROUND_SECONDS;
 let gemsCollected = 0;
-let hitCooldown = 0;
+let level = 1;
+let hitFlashLeft = 0;
 let nextBoulderIn = 0;
+let levelUpTimer = 0;
 
 function updateHud() {
+  ui.level.textContent = String(level);
   ui.gems.textContent = String(gemsCollected);
   ui.time.textContent = String(Math.max(0, Math.ceil(timeLeft)));
+}
+
+function showLevelUp() {
+  ui.levelUp.textContent = `Level ${level}! More boulders`;
+  ui.levelUp.hidden = true;
+  void ui.levelUp.offsetWidth; // restart the pop animation
+  ui.levelUp.hidden = false;
+  clearTimeout(levelUpTimer);
+  levelUpTimer = setTimeout(() => {
+    ui.levelUp.hidden = true;
+  }, 1500);
 }
 
 function startRound() {
@@ -276,9 +309,12 @@ function startRound() {
   player.visible = true;
   timeLeft = ROUND_SECONDS;
   gemsCollected = 0;
-  hitCooldown = 0;
+  level = 1;
+  hitFlashLeft = 0;
   nextBoulderIn = 2;
   for (let i = 0; i < GEMS_ON_ISLAND; i++) spawnGem();
+  clearTimeout(levelUpTimer);
+  ui.levelUp.hidden = true;
   ui.startScreen.hidden = true;
   ui.endScreen.hidden = true;
   state = 'playing';
@@ -311,9 +347,12 @@ function renderLeaderboard(entries) {
   }
 }
 
-async function endRound() {
+async function endRound(reason) {
   state = 'over';
   player.visible = true;
+  clearTimeout(levelUpTimer);
+  ui.levelUp.hidden = true;
+  ui.endTitle.textContent = reason === 'hit' ? 'Hit by a boulder!' : "Time's up!";
   ui.finalGems.textContent = String(gemsCollected);
   ui.saveMessage.textContent = currentUser ? 'Saving your score…' : 'Sign in with start.ng to save your score to the leaderboard.';
   ui.leaderboard.replaceChildren();
@@ -371,11 +410,16 @@ function update(dt) {
     gem.position.y = 0.8 + Math.sin(now * 3 + gem.userData.phase) * 0.15;
   }
 
+  if (state === 'hit') {
+    hitFlashLeft -= dt;
+    player.visible = Math.floor(hitFlashLeft * 10) % 2 === 0;
+    if (hitFlashLeft <= 0) endRound('hit');
+    return;
+  }
+
   if (state !== 'playing') return;
 
   timeLeft -= dt;
-  hitCooldown = Math.max(0, hitCooldown - dt);
-  player.visible = hitCooldown === 0 || Math.floor(hitCooldown * 10) % 2 === 0;
 
   for (const gem of [...gems]) {
     const dx = gem.position.x - player.position.x;
@@ -385,14 +429,19 @@ function update(dt) {
       removeObject(gem);
       gems = gems.filter((g) => g !== gem);
       spawnGem();
+      const newLevel = levelFor(gemsCollected);
+      if (newLevel > level) {
+        level = newLevel;
+        showLevelUp();
+      }
     }
   }
 
-  const progress = 1 - timeLeft / ROUND_SECONDS;
   nextBoulderIn -= dt;
   if (nextBoulderIn <= 0) {
-    spawnBoulder(progress);
-    nextBoulderIn = THREE.MathUtils.lerp(2.4, 1.0, progress);
+    spawnBoulder(level);
+    if (level >= PAIRS_FROM_LEVEL && Math.random() < PAIR_CHANCE) spawnBoulder(level);
+    nextBoulderIn = boulderInterval(level);
   }
 
   for (const boulder of [...boulders]) {
@@ -400,17 +449,13 @@ function update(dt) {
     boulder.position.addScaledVector(velocity, dt);
     boulder.rotateOnWorldAxis(rollAxis, (velocity.length() * dt) / 0.9);
 
-    const dx = player.position.x - boulder.position.x;
-    const dz = player.position.z - boulder.position.z;
-    const gap = Math.hypot(dx, dz);
-    if (hitCooldown === 0 && gap < 0.9 + PLAYER_RADIUS) {
-      timeLeft -= HIT_PENALTY_SECONDS;
-      hitCooldown = 1;
-      const push = gap > 0.01 ? 2 / gap : 0;
-      player.position.x += dx * push;
-      player.position.z += dz * push;
-      const distance = Math.hypot(player.position.x, player.position.z);
-      if (distance > PLAY_RADIUS) player.position.multiplyScalar(PLAY_RADIUS / distance);
+    const gap = Math.hypot(player.position.x - boulder.position.x, player.position.z - boulder.position.z);
+    if (gap < 0.9 + PLAYER_RADIUS) {
+      // One hit ends the round: flash the character briefly, then show the end card.
+      state = 'hit';
+      hitFlashLeft = HIT_FLASH_SECONDS;
+      updateHud();
+      return;
     }
 
     if (Math.hypot(boulder.position.x, boulder.position.z) > ISLAND_RADIUS + 6) {
@@ -420,7 +465,7 @@ function update(dt) {
   }
 
   updateHud();
-  if (timeLeft <= 0) endRound();
+  if (timeLeft <= 0) endRound('time');
 }
 
 function followCamera(dt) {

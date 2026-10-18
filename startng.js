@@ -21,7 +21,10 @@ function connectFrame() {
 // Sends a message and resolves to start.ng's reply, or null if it didn't answer.
 async function askStartNg(message, replyType, timeoutMs = 5000) {
   if (!ON_START_NG) return null;
-  const el = await connectFrame();
+  // Give up if the connect page itself is slow to load, not only if it is slow to answer.
+  const gaveUp = new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs));
+  const el = await Promise.race([connectFrame(), gaveUp]);
+  if (!el) return null;
   return new Promise((resolve) => {
     const requestId = Math.random().toString(36).slice(2);
     const done = (reply) => {
